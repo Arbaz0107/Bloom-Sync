@@ -1,0 +1,6 @@
+{
+  "appId": "com.bloomsync.periodtracker",
+  "appName": "BloomSync",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}

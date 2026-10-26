@@ -1,0 +1,14 @@
+{
+  "name": "bloomsync-period-tracker",
+  "version": "2.6.0",
+  "description": "BloomSync Mobile Period, Variable Cycle Radar & Partner Care Tracker",
+  "main": "www/index.html",
+  "scripts": {
+    "build": "echo 'Static bundle ready in www/'"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/core": "^6.0.0"
+  }
+}
