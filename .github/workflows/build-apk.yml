@@ -1,203 +1,68 @@
-name: Build & Release Android APK
+name: Build Android APK
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  build-android-apk:
-    name: Compile BloomSync Mobile APK
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 20
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: 20
 
-      - name: Setup Java JDK 21
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: "temurin"
-          java-version: "21"
+          distribution: temurin
+          java-version: 17
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Auto-Prepare Web Folder & Capacitor Configs
+      - name: Install dependencies
+        run: npm install
+
+      - name: Prepare web bundle (www)
         run: |
           mkdir -p www
-          if [ -f "www/index.html" ]; then
-            echo "Using existing www/index.html"
-          elif [ -f "index.html" ]; then
-            cp index.html www/index.html
-            echo "Copied root index.html to www/index.html"
+          cp index.html www/
+          [ -f manifest.json ] && cp manifest.json www/ || true
+          [ -d assets ] && cp -r assets www/assets || true
+
+      - name: Add Android platform
+        run: |
+          if [ ! -d android ]; then npx cap add android; fi
+
+      - name: Generate launcher icons
+        run: |
+          if [ -f assets/icon.png ]; then
+            npm install --no-save @capacitor/assets
+            npx capacitor-assets generate --android \
+              --iconBackgroundColor '#ffffff' \
+              --iconBackgroundColorDark '#ffffff'
           else
-            FOUND_HTML=$(find . -maxdepth 2 -name "*.html" | head -n 1)
-            if [ -n "$FOUND_HTML" ]; then
-              cp "$FOUND_HTML" www/index.html
-              echo "Copied $FOUND_HTML to www/index.html"
-            else
-              echo "Error: No HTML file found in repository!"
-              exit 1
-            fi
+            echo "assets/icon.png not found, skipping icon generation"
           fi
 
-          if [ ! -f "package.json" ]; then
-            printf '%s\n' '{"name":"bloomsync-period-tracker","version":"2.6.0","private":true}' > package.json
-          fi
+      - name: Sync Capacitor
+        run: npx cap sync android
 
-          if [ ! -f "capacitor.config.json" ]; then
-            printf '%s\n' '{"appId":"com.bloomsync.periodtracker","appName":"BloomSync","webDir":"www","bundledWebRuntime":false}' > capacitor.config.json
-          fi
-
-      - name: Install Capacitor & Generate Android Project
-        run: |
-          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
-          npx cap copy android
-          npx cap sync android
-
-      - name: Generate & Apply Custom BloomSync APK Theme Logo Icons
-        run: |
-          python3 -m pip install --quiet Pillow || true
-          python3 - << 'PYICON'
-          import os
-          from PIL import Image, ImageDraw
-
-          def draw_logo(size, round_mask=False, foreground_only=False):
-              S = 1024
-              img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-              if not foreground_only:
-                  bg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-                  px = bg.load()
-                  for y in range(S):
-                      t = y / (S - 1)
-                      for x in range(S):
-                          b = 0.65 * t + 0.35 * (x / (S - 1))
-                          r = int(244 * (1 - b) + 159 * b)
-                          g = int(63 * (1 - b) + 18 * b)
-                          bl = int(94 * (1 - b) + 57 * b)
-                          px[x, y] = (r, g, bl, 255)
-                  mask = Image.new("L", (S, S), 0)
-                  md = ImageDraw.Draw(mask)
-                  if round_mask:
-                      md.ellipse([16, 16, S - 16, S - 16], fill=255)
-                  else:
-                      md.rounded_rectangle([16, 16, S - 16, S - 16], radius=220, fill=255)
-                  img.paste(bg, (0, 0), mask)
-
-              ov = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-              od = ImageDraw.Draw(ov)
-              pad = 220 if foreground_only else 135
-              od.ellipse([pad, pad, S - pad, S - pad], outline=(255, 228, 230, 110), width=18)
-              od.arc([pad, pad, S - pad, S - pad], start=210, end=330, fill=(254, 240, 138, 240), width=22)
-
-              cx, cy = S // 2, S // 2 + 12
-              sc = 0.68 if foreground_only else 1.0
-              def pt(dx, dy):
-                  return (int(cx + dx * sc), int(cy + dy * sc))
-
-              # Lotus petals
-              od.polygon([pt(0, 115), pt(-230, 35), pt(-255, -105), pt(-100, -45)], fill=(254, 205, 211, 225))
-              od.polygon([pt(0, 115), pt(230, 35), pt(255, -105), pt(100, -45)], fill=(254, 205, 211, 225))
-              od.polygon([pt(0, 110), pt(-165, -10), pt(-155, -175), pt(-40, -90)], fill=(255, 241, 242, 245))
-              od.polygon([pt(0, 110), pt(165, -10), pt(155, -175), pt(40, -90)], fill=(255, 241, 242, 245))
-              od.polygon([pt(0, -245), pt(110, -65), pt(80, 90), pt(0, 125), pt(-80, 90), pt(-110, -65)], fill=(255, 255, 255, 255))
-
-              # Inner Crimson Heart
-              hr = int(42 * sc)
-              od.ellipse([cx - hr - int(20*sc), cy - hr, cx + int(20*sc), cy + hr], fill=(225, 29, 72, 255))
-              od.ellipse([cx - int(20*sc), cy - hr, cx + hr + int(20*sc), cy + hr], fill=(225, 29, 72, 255))
-              od.polygon([(cx - hr - int(17*sc), cy + int(8*sc)), (cx + hr + int(17*sc), cy + int(8*sc)), (cx, cy + int(85*sc))], fill=(225, 29, 72, 255))
-
-              img = Image.alpha_composite(img, ov)
-              return img.resize((size, size), Image.Resampling.LANCZOS)
-
-          import re, io, base64
-          src_img = None
-          if os.path.exists("www/icons/icon-512.png"):
-              src_img = Image.open("www/icons/icon-512.png").convert("RGBA")
-          elif os.path.exists("www/index.html"):
-              with open("www/index.html", "r", errors="ignore") as hf:
-                  m = re.search(r'data:image/png;base64,([A-Za-z0-9+/=]+)', hf.read())
-                  if m:
-                      src_img = Image.open(io.BytesIO(base64.b64decode(m.group(1)))).convert("RGBA")
-
-          def get_icon(sz, round_mask=False, fg=False):
-              if src_img is not None:
-                  if fg:
-                      canvas = Image.new("RGBA", (sz, sz), (0, 0, 0, 0))
-                      inner = int(sz * 0.72)
-                      resized = src_img.resize((inner, inner), Image.Resampling.LANCZOS)
-                      mask = Image.new("L", (inner, inner), 0)
-                      md = ImageDraw.Draw(mask)
-                      md.rounded_rectangle([0, 0, inner, inner], radius=int(inner * 0.24), fill=255)
-                      off = (sz - inner) // 2
-                      canvas.paste(resized, (off, off), mask)
-                      return canvas
-                  resized = src_img.resize((sz, sz), Image.Resampling.LANCZOS)
-                  mask = Image.new("L", (sz, sz), 0)
-                  md = ImageDraw.Draw(mask)
-                  if round_mask:
-                      md.ellipse([0, 0, sz, sz], fill=255)
-                  else:
-                      md.rounded_rectangle([0, 0, sz, sz], radius=int(sz * 0.22), fill=255)
-                  out = Image.new("RGBA", (sz, sz), (0, 0, 0, 0))
-                  out.paste(resized, (0, 0), mask)
-                  return out
-              return draw_logo(sz, round_mask=round_mask, foreground_only=fg)
-
-          res_dir = "android/app/src/main/res"
-          mipmaps = {
-              "mipmap-mdpi": (48, 108),
-              "mipmap-hdpi": (72, 162),
-              "mipmap-xhdpi": (96, 216),
-              "mipmap-xxhdpi": (144, 324),
-              "mipmap-xxxhdpi": (192, 432),
-          }
-          for folder, (sz, fg_sz) in mipmaps.items():
-              p = os.path.join(res_dir, folder)
-              os.makedirs(p, exist_ok=True)
-              get_icon(sz, round_mask=False, fg=False).save(os.path.join(p, "ic_launcher.png"))
-              get_icon(sz, round_mask=True, fg=False).save(os.path.join(p, "ic_launcher_round.png"))
-              get_icon(fg_sz, round_mask=False, fg=True).save(os.path.join(p, "ic_launcher_foreground.png"))
-
-          bg_xml = os.path.join(res_dir, "values", "ic_launcher_background.xml")
-          if os.path.exists(os.path.dirname(bg_xml)):
-              with open(bg_xml, "w") as f:
-                  f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#E11D48</color>\n</resources>\n')
-          print("Custom BloomSync APK launcher icons generated in all mipmap folders!")
-          PYICON
-
-      - name: Build Debug APK via Gradle
-        working-directory: ./android
+      - name: Build debug APK
+        working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK to GitHub Actions Artifacts
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: BloomSync-Mobile-APK
+          name: BloomSync-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-
-      - name: Publish APK to GitHub Releases
-        uses: softprops/action-gh-release@v2
-        continue-on-error: true
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "BloomSync Mobile APK v1.0.${{ github.run_number }}"
-          body: "Automated Android APK build of BloomSync Period & Partner Care Tracker with custom BloomSync Option 1 (Interlocking Couple Hearts & 28-Day Cycle Ring) Launcher Icon. Download `app-debug.apk` below to install on your Android phone."
-          files: android/app/build/outputs/apk/debug/app-debug.apk
