@@ -41,16 +41,25 @@ jobs:
         run: |
           if [ ! -d android ]; then npx cap add android; fi
 
-      - name: Generate launcher icons
+      - name: Apply custom launcher icon
         run: |
-          if [ -f assets/icon.png ]; then
-            npm install --no-save @capacitor/assets
-            npx capacitor-assets generate --android \
-              --iconBackgroundColor '#ffffff' \
-              --iconBackgroundColorDark '#ffffff'
-          else
-            echo "assets/icon.png not found, skipping icon generation"
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+          SRC=assets/icon.png
+          if [ ! -f "$SRC" ]; then
+            echo "::error::assets/icon.png is missing. Upload your logo to assets/icon.png (square PNG, 512x512 or 1024x1024)"
+            exit 1
           fi
+          RES=android/app/src/main/res
+          # Remove adaptive-icon XML so Android uses our PNGs instead of the default icon
+          rm -f $RES/mipmap-anydpi-v26/ic_launcher.xml $RES/mipmap-anydpi-v26/ic_launcher_round.xml
+          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            d=${pair%%:*}; s=${pair##*:}
+            mkdir -p $RES/mipmap-$d
+            convert "$SRC" -background none -resize ${s}x${s} -gravity center -extent ${s}x${s} $RES/mipmap-$d/ic_launcher.png
+            cp $RES/mipmap-$d/ic_launcher.png $RES/mipmap-$d/ic_launcher_round.png
+          done
+          echo "Launcher icons generated:"
+          ls -la $RES/mipmap-*/ic_launcher*.png
 
       - name: Sync Capacitor
         run: npx cap sync android
